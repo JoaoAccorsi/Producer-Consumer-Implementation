@@ -3,13 +3,16 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
+#include <semaphore.h>
 #include "queue.h"
 
 pthread_t threads[4];
 Queue sorting_belt;
 
+sem_t semEmpty;
+sem_t semFull;
+
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 
 typedef struct {
     char* category;
@@ -26,50 +29,52 @@ Cargo_transport cargo;
 Cargo_transport low_weight[1000];
 Cargo_transport high_weight[1000];
 
-int counter_low_weight = 1, counter_high_weight = 1, planes_produced = 0, ships_produced = 0, trucks_produced = 0; 
+int counter_low_weight = 1, counter_high_weight = 1, planes_produced = 0, ships_produced = 0, trucks_produced = 0, random_time = 0;
 
 void* classifier_1 (void* arg){
 
+    sem_wait(&semFull);
     pthread_mutex_lock(&mutex);
 
-    if (getQueueSize(&sorting_belt) == 0)
-        pthread_cond_wait(&condition, &mutex);
+    dequeue(&sorting_belt, &cargo);
 
-    real_classifier(1);
-    
+    real_classifier(1, cargo);
+
     pthread_mutex_unlock(&mutex);
+    sem_post(&semEmpty);
+
     return NULL;
 }
 
 void* classifier_2 (void* arg){
 
+    sem_wait(&semFull);
     pthread_mutex_lock(&mutex);
+    
+    dequeue(&sorting_belt, &cargo);
 
-    if (getQueueSize(&sorting_belt) == 0)
-        pthread_cond_wait(&condition, &mutex);
-
-    real_classifier(2);
+    real_classifier(2, cargo);
 
     pthread_mutex_unlock(&mutex);
+    sem_post(&semEmpty);
+
     return NULL;
 }
 
-void real_classifier(int number){
-
-    dequeue(&sorting_belt, &cargo);
+void real_classifier(int number, Cargo_transport cargo_classifier){
 
     if (cargo.maximum_weight < 200000){
-        low_weight[counter_low_weight].category = cargo.category;
-        low_weight[counter_low_weight].name = cargo.name;
-        low_weight[counter_low_weight].range = cargo.range;
-        low_weight[counter_low_weight].maximum_weight = cargo.maximum_weight;
+        low_weight[counter_low_weight].category = cargo_classifier.category;
+        low_weight[counter_low_weight].name = cargo_classifier.name;
+        low_weight[counter_low_weight].range = cargo_classifier.range;
+        low_weight[counter_low_weight].maximum_weight = cargo_classifier.maximum_weight;
         printf("Cargo Classified by Classifier %d: %s: {Name: %s - Range: %dkm - Maximum Weight: %dkg}\n", number, low_weight[counter_low_weight].category, low_weight[counter_low_weight].name, low_weight[counter_low_weight].range, low_weight[counter_low_weight].maximum_weight);      
         counter_low_weight++;
     } else {
-        high_weight[counter_high_weight].category = cargo.category;
-        high_weight[counter_high_weight].name = cargo.name;
-        high_weight[counter_high_weight].range = cargo.range;
-        high_weight[counter_high_weight].maximum_weight = cargo.maximum_weight;
+        high_weight[counter_high_weight].category = cargo_classifier.category;
+        high_weight[counter_high_weight].name = cargo_classifier.name;
+        high_weight[counter_high_weight].range = cargo_classifier.range;
+        high_weight[counter_high_weight].maximum_weight = cargo_classifier.maximum_weight;
         printf("Cargo Classified by Classifier %d: %s: {Name: %s - Range: %dkm - Maximum Weight: %dkg}\n", number, high_weight[counter_high_weight].category, high_weight[counter_high_weight].name, high_weight[counter_high_weight].range, high_weight[counter_high_weight].maximum_weight);
         counter_high_weight++;
     }
@@ -86,10 +91,8 @@ void* plane_producer(void* arg){
 
     char name[20][200] = {"Airbus A220", "Airbus A320", "Boing 747", "Boing 777", "Airbus A330", "Airbus A380", "Embraer 190", "Airbus Beluga", "Boing 737", "Embraer 170", "Embraer 195", "Airbus A300"};  
 
+    sem_wait(&semEmpty);
     pthread_mutex_lock(&mutex);
-
-    if (getQueueSize(&sorting_belt) > 0)
-        pthread_cond_signal(&condition);
 
     plane.category = "Plane";
     plane.name = name[random() % 11];
@@ -100,6 +103,8 @@ void* plane_producer(void* arg){
     printf("Plane Produced: %s: {Name: %s - Range: %dkm - Maximum Weight: %dkg}\n", plane.category, plane.name, plane.range, plane.maximum_weight);
 
     pthread_mutex_unlock(&mutex);
+    sem_post(&semFull);
+
     return NULL;
 }
 
@@ -107,10 +112,8 @@ void* ship_producer(void* arg){
 
     char name[20][200] = {"Bulk Ship", "Tanker Ship", "Oil Ship", "Gas Ship", "Container Ship", "General Cargo Ship", "Ro-Ro Ship"};
 
+    sem_wait(&semEmpty);
     pthread_mutex_lock(&mutex);
-
-    if (getQueueSize(&sorting_belt) > 0)
-        pthread_cond_signal(&condition);
 
     ship.category = "Ship";
     ship.name = name[random() % 6];
@@ -121,6 +124,8 @@ void* ship_producer(void* arg){
     printf("Ship Produced: %s: {Name: %s - Range: %dkm - Maximum Weight: %dkg}\n", ship.category, ship.name, ship.range, ship.maximum_weight);
 
     pthread_mutex_unlock(&mutex);
+    sem_post(&semFull);
+
     return NULL;
 }
 
@@ -128,10 +133,8 @@ void* truck_producer(void* arg){
 
     char name[20][200] = {"Concrete Transport Truck", "Tank Truck" ,"Tractor Unit Truck", "Refrigerator Truck", "Dump Truck", "Garbage Truck", "Log Carrier Truck", "Mobile Crane Truck"};
 
+    sem_wait(&semEmpty);
     pthread_mutex_lock(&mutex);
-
-    if (getQueueSize(&sorting_belt) > 0)
-        pthread_cond_signal(&condition);
 
     truck.category = "Truck";
     truck.name = name[random() % 7];
@@ -142,12 +145,18 @@ void* truck_producer(void* arg){
     printf("Truck Produced: %s: {Name: %s - Range: %dkm - Maximum Weight: %dkg}\n", truck.category, truck.name, truck.range, truck.maximum_weight);
 
     pthread_mutex_unlock(&mutex);
+    sem_post(&semFull);
+
     return NULL;
 }
 
 int main() {
 
     queueInit(&sorting_belt, sizeof(Cargo_transport));
+
+    sem_init(&semEmpty, 0, 1000);
+    sem_init(&semFull, 0, 0);
+
     srand (time(NULL));
 
     Cargo_transport aux;
@@ -158,39 +167,45 @@ int main() {
         high_weight[j].category == aux.category;
     }
 
-    int count = 0, rand = 0, limit = 0;
+    int count = 0, limit = 0, rand = 0, producer = 0;
 
-    limit = random() % 1200; 
+    random_time = random() % 10; // 0
+    producer = random() % 20 + 1; // 100
+
+    printf("Produce how many cargos? %d\n", producer);
+    printf("Time to produce each cargo: %ds\n\n", random_time);
     
-    while(count < limit){
-
-        if (count % 2 == 0){
-
-            rand = (random() % 3);
-
-            switch (rand){
-                case 0:
-                    pthread_create(&threads[2], NULL, &plane_producer, NULL);
-                    break;
-                case 1:
-                    pthread_create(&threads[3], NULL, &ship_producer, NULL);
-                    break;
-                case 2:
-                    pthread_create(&threads[4], NULL, &truck_producer, NULL);
-                    break;
-                default:
-                    break;
-            }     
-        }
+    while(count < producer){
 
         pthread_create(&threads[0], NULL, &classifier_1, NULL);
         pthread_create(&threads[1], NULL, &classifier_2, NULL);
 
-        sleep(0.5);
+        rand = (random() % 3);
+
+        switch (rand){
+            case 0:
+                pthread_create(&threads[2], NULL, &plane_producer, NULL);
+                sleep(random_time);
+                break;
+            case 1:
+                pthread_create(&threads[3], NULL, &ship_producer, NULL);
+                sleep(random_time);
+                break;
+            case 2:
+                pthread_create(&threads[4], NULL, &truck_producer, NULL);
+                sleep(random_time);
+                break;
+            default:
+                break;
+        }     
+
         count++;     
     }
 
     pthread_mutex_destroy(&mutex);
+    sem_destroy(&semEmpty);
+    sem_destroy(&semFull);
+
     sleep(1);
     toString();
 
