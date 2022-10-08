@@ -1,3 +1,7 @@
 # Operating-Systems-II
 
-Editar depois
+Compilate:
+gcc trabGA.c queue.c -o trabGA.out -lpthread -lrt
+
+Run:
+./trabGA.out
